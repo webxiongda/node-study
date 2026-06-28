@@ -1,0 +1,14 @@
+{
+  "name": "mini-todo-api",
+  "version": "1.0.0",
+  "description": "用原生 Node.js（零依赖）构建的 RESTful TODO API",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
