@@ -1,0 +1,14 @@
+{
+  "name": "node-study-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js 全栈学习路线 · 静态站点生成器（markdown → HTML）",
+  "scripts": {
+    "build": "node build-site.mjs"
+  },
+  "devDependencies": {
+    "highlight.js": "^11.11.1",
+    "marked": "^14.1.4"
+  }
+}
