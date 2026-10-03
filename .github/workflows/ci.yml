@@ -1,0 +1,55 @@
+name: node-study CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: node-study-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-site:
+    name: 生成静态站点并校验
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: 安装构建依赖
+        run: npm install marked@^14 highlight.js@^11 --no-audit --no-fund
+
+      - name: 生成静态站点
+        run: node build-site.mjs
+
+      - name: 校验产物
+        run: |
+          set -eo pipefail
+          pages=$(find dist -name '*.html' | wc -l | tr -d ' ')
+          echo "HTML 页面数: $pages"
+          [ "$pages" -gt 300 ] || { echo "❌ 页面数异常（预期 >300）"; exit 1; }
+          [ -f dist/index.html ] || { echo "❌ 缺首页"; exit 1; }
+          [ -f dist/assets/style.css ] || { echo "❌ 缺样式"; exit 1; }
+          [ -f dist/chapter/01/index.html ] || { echo "❌ 缺章节页"; exit 1; }
+
+          # 章节数量应与 chapters 目录一致
+          chapters=$(ls -d chapters/*/ 2>/dev/null | wc -l | tr -d ' ')
+          built=$(ls -d dist/chapter/*/ 2>/dev/null | wc -l | tr -d ' ')
+          echo "源章节数: $chapters  已构建: $built"
+          [ "$chapters" = "$built" ] || { echo "❌ 章节数不匹配"; exit 1; }
+          echo "✅ 产物校验通过"
+
+      - name: 上传站点产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-study-site
+          path: dist/
+          retention-days: 7

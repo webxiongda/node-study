@@ -1,0 +1,105 @@
+name: node-study Deploy
+
+# 部署通道：阿里云 Cloud Assistant（aliyun ecs RunCommand），不用 SSH。
+# 原因同 java-study / python-learning：GitHub Actions runner 属境外出口，
+# 直连 47.93.15.207:22 会被阿里云上游静默丢包（安全组规则在该层之下，加了也无效）。
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: node-study-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 部署到 ECS
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 记录版本
+        id: before
+        run: |
+          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "message=$(git log -1 --pretty='%s')" >> "$GITHUB_OUTPUT"
+
+      - name: 通过 Cloud Assistant 下发部署脚本
+        env:
+          ALICLOUD_ACCESS_KEY_ID: ${{ secrets.ALIYUN_AK }}
+          ALICLOUD_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_SK }}
+          REGION: cn-beijing
+          INSTANCE_ID: i-2zecv4kgasiw24p97v0t
+        run: |
+          set -eo pipefail
+          curl -fsSL -o aliyun-cli.tgz https://aliyuncli.alicdn.com/aliyun-cli-linux-latest-amd64.tgz
+          tar -xzf aliyun-cli.tgz
+          install -m 0755 aliyun /usr/local/bin/aliyun
+
+          aliyun configure set --mode AK --profile ecs-deploy \
+            --region "$REGION" \
+            --access-key-id "$ALICLOUD_ACCESS_KEY_ID" \
+            --access-key-secret "$ALICLOUD_ACCESS_KEY_SECRET" >/dev/null
+
+          IID=$(aliyun ecs RunCommand --profile ecs-deploy --region "$REGION" \
+            --Type RunShellScript --Timeout 900 \
+            --InstanceId.1 "$INSTANCE_ID" \
+            --ContentEncoding Base64 \
+            --CommandContent "$(base64 -w0 < deploy/deploy-node.sh)" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['InvokeId'])")
+          echo "InvokeId=$IID"
+          echo "::add-mask::$IID"
+
+          while :; do
+            STATUS=$(aliyun ecs DescribeInvocationResults --profile ecs-deploy \
+              --region "$REGION" --InvokeId "$IID" \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['Invocation']['InvocationResults']['InvocationResult'][0]['InvocationStatus'])")
+            echo "  状态: $STATUS"
+            case "$STATUS" in Running|Pending) sleep 10 ;; *) break ;; esac
+          done
+
+          aliyun ecs DescribeInvocationResults --profile ecs-deploy \
+            --region "$REGION" --InvokeId "$IID" \
+            | python3 -c "
+import sys, json, base64
+r = json.load(sys.stdin)['Invocation']['InvocationResults']['InvocationResult'][0]
+print(base64.b64decode(r.get('Output','')).decode(errors='replace'))
+" | tee /tmp/ca-output.log
+
+          grep -q "NODE-STUDY DEPLOY DONE" /tmp/ca-output.log || {
+            echo "::error::部署未完成"; exit 1; }
+
+      - name: 部署结果
+        if: always()
+        run: |
+          {
+            echo "### 部署完成"
+            echo ""
+            echo "- commit: \`${{ steps.before.outputs.commit }}\` — ${{ steps.before.outputs.message }}"
+            echo "- 站点: http://47.93.15.207:8087/"
+            echo ""
+            echo '```'
+            tail -25 /tmp/ca-output.log 2>/dev/null || echo '(无输出)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 外网复验
+        run: |
+          set -eo pipefail
+          sleep 3
+          echo -n "首页     : "
+          curl -sS --max-time 15 -o /dev/null -w '%{http_code}\n' http://47.93.15.207:8087/
+          echo -n "章节01   : "
+          curl -sS --max-time 15 -o /dev/null -w '%{http_code}\n' http://47.93.15.207:8087/chapter/01/index.html
+          echo -n "样式     : "
+          curl -sS --max-time 15 -o /dev/null -w '%{http_code}\n' http://47.93.15.207:8087/assets/style.css
+          # 首页应含 60 个章节链接
+          n=$(curl -sS --max-time 15 http://47.93.15.207:8087/ | grep -o 'href="/chapter/[0-9]*/index.html"' | sort -u | wc -l | tr -d ' ')
+          echo "章节链接数: $n"
+          [ "$n" -ge 55 ] || { echo "❌ 章节链接异常"; exit 1; }
