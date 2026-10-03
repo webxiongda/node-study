@@ -25,10 +25,11 @@ jobs:
           cache: npm
 
       - name: 安装构建依赖
-        run: npm install marked@^14 highlight.js@^11 --no-audit --no-fund
+        # 用 ci 保证与 lock 文件一致（cache: npm 依赖 package-lock.json 存在）
+        run: npm ci --no-audit --no-fund
 
       - name: 生成静态站点
-        run: node build-site.mjs
+        run: npm run build
 
       - name: 校验产物
         run: |

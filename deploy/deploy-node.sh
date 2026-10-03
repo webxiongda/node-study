@@ -29,8 +29,8 @@ rm -rf "$KEEP"
 
 echo "=== 3. 安装构建依赖并生成站点 ==="
 export PATH=/usr/local/bin:$PATH
-npm install marked@^14 highlight.js@^11 --no-audit --no-fund 2>&1 | tail -2
-node build-site.mjs 2>&1 | tail -4
+npm ci --no-audit --no-fund 2>&1 | tail -2
+npm run build 2>&1 | tail -4
 echo "HTML 页面数: $(find dist -name '*.html' | wc -l)  dist 大小: $(du -sh dist | cut -f1)"
 
 echo "=== 4. 确保 nginx vhost 存在 ===="
